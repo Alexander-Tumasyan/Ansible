@@ -1,0 +1,92 @@
+---
+- name: Install docker
+  hosts: app
+  gather_facts: yes
+  become: yes
+
+  tasks:
+    - name: Set the stable docker repository
+      apt_repository:
+        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable"
+        state: present
+        update_cache: no
+      when: ansible_facts.distribution == "Ubuntu"  
+
+    - name: Get APT Key
+      shell:
+        cmd: curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+      when: ansible_facts.distribution == "Ubuntu"
+
+    - name: Install docker Ubuntu
+      apt:
+        name: docker-ce
+        state: present
+        update_cache: yes
+      when: ansible_facts.distribution == "Ubuntu"  
+      notify: Start docker
+
+    - name: Add the official Docker repository for CentOS 7
+      shell:
+        cmd: curl -fsSL https://get.docker.com/ | sh
+      when: ansible_facts.distribution == "CentOS"
+
+    - name: Install docker Centos
+      yum:
+        name: docker-ce
+        state: present
+        update_cache: no
+      when: ansible_facts.distribution == "CentOS"  
+      notify: Start docker
+
+- name:  Install postgresql
+  hosts: database
+  gather_facts: yes
+  become: yes
+
+  tasks:
+    - name: Add repository PG
+      shell:
+        cmd: sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+        cmd: wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+
+    - name: Install postgresql-{{ pgs_ver }}
+      apt:
+        name:
+          - postgresql-{{ pgs_ver }}
+          - postgresql-contrib
+        state: present
+      notify: Stop postgresql
+
+    - name: Create a {{ data_directory }} directory if it does not exist
+      ansible.builtin.file:
+        path: '{{ data_directory }}'
+        state: directory
+        owner: postgres
+        group: postgres
+        mode: '0755'
+
+    - name: Set a new data_directory {{ data_directory }}
+      ansible.builtin.replace:
+        path: /etc/postgresql/{{ pgs_ver }}/main/postgresql.conf
+        regexp:  'data_directory = '
+        replace: "data_directory = '{{ data_directory }}/{{ pgs_ver }}/main' #"
+        notify: Start postgresql
+
+  handlers:
+    - name: Start postgresql
+      service:
+        name: postgresql
+        state: started
+        enabled: yes  
+
+    - name: Stop postgresql
+      service:
+        name: postgresql
+        state: stopped
+        enabled: yes
+
+    - name: Start docker
+      service:
+        name: docker-ce
+        state: started
+        enabled: yes
